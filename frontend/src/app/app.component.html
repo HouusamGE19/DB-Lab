@@ -1,0 +1,319 @@
+<div class="lab-gate" *ngIf="!labEntered" [class.opening]="enteringLab">
+  <div class="gate-grid"></div>
+  <div class="gate-orb" aria-hidden="true">
+    <span class="orb-ring ring-one"></span>
+    <span class="orb-ring ring-two"></span>
+    <span class="orb-ring ring-three"></span>
+    <span class="orb-core">DB</span>
+  </div>
+  <p class="gate-kicker">SYSTEMS ENGINEERING // PERFORMANCE DIVISION</p>
+  <h1>Database<br><span>Performance Lab</span></h1>
+  <p class="gate-copy">Enter an interactive playground for SQL execution, query plans, indexes, joins, PostgreSQL metrics and Redis caching.</p>
+  <div class="gate-status">
+    <span><i [class.online]="tables.length > 0"></i> Spring API</span>
+    <span><i [class.online]="metrics !== null"></i> PostgreSQL</span>
+    <span><i class="online"></i> Redis lab</span>
+  </div>
+  <button class="enter-button" (click)="enterLab()" [disabled]="enteringLab">
+    <span>{{ enteringLab ? 'OPENING LAB…' : 'ENTER THE LAB' }}</span>
+    <b>→</b>
+  </button>
+  <small class="gate-hint">No fake metrics: animations react to real API results and EXPLAIN ANALYZE output.</small>
+</div>
+
+<div class="app-shell" *ngIf="labEntered">
+  <aside class="sidebar">
+    <div class="brand-mark"><span>DB</span><i></i></div>
+    <div class="brand-copy"><strong>DB LAB</strong><small>v3.0</small></div>
+
+    <nav>
+      <button [class.active]="activeSection === 'console'" (click)="goTo('console')"><span>⌘</span><em>SQL Console</em></button>
+      <button [class.active]="activeSection === 'planner'" (click)="goTo('planner')"><span>◇</span><em>Query Planner</em></button>
+      <button [class.active]="activeSection === 'indexes'" (click)="goTo('indexes')"><span>▱</span><em>Index Studio</em></button>
+      <button [class.active]="activeSection === 'metrics'" (click)="goTo('metrics')"><span>▥</span><em>Metrics</em></button>
+      <button [class.active]="activeSection === 'dataset'" (click)="goTo('dataset')"><span>⚗</span><em>Dataset</em></button>
+    </nav>
+
+    <div class="side-health">
+      <p>LAB HEALTH</p>
+      <div><span>API</span><b class="health-dot online"></b></div>
+      <div><span>Database</span><b class="health-dot" [class.online]="metrics !== null"></b></div>
+      <div><span>Dataset</span><b class="health-dot" [class.online]="databaseReady"></b></div>
+    </div>
+  </aside>
+
+  <main class="main-stage">
+    <header class="topbar">
+      <div class="topbar-brand">
+        <div class="topbar-emblem" aria-hidden="true"><span>DB</span><i></i></div>
+        <div class="topbar-copy">
+          <small>PERFORMANCE LAB // V3.1</small>
+          <strong>Database Playground</strong>
+          <span>Query · Observe · Optimize</span>
+        </div>
+      </div>
+      <div class="top-status">
+        <span class="lab-running"><i></i><span>LAB ONLINE</span></span>
+        <span class="top-stat"><small>ROWS</small><b>{{ totalRows | number }}</b></span>
+        <span class="top-stat"><small>INDEXES</small><b>{{ indexes.length }}</b></span>
+        <span class="top-stat" *ngIf="metrics as m"><small>DATABASE</small><b>{{ formatBytes(m.databaseBytes) }}</b></span>
+      </div>
+    </header>
+
+    <div class="status-ticker" [class.busy]="busyAction !== null">
+      <span class="ticker-light"></span>
+      <strong>{{ busyAction ? 'PROCESSING' : 'SYSTEM' }}</strong>
+      <p>{{ message }}</p>
+    </div>
+
+    <section id="console" class="workspace-zone">
+      <article class="glass-panel console-panel">
+        <div class="panel-head">
+          <div>
+            <span class="section-code">01 // SQL CONSOLE</span>
+            <h2>Query command center</h2>
+          </div>
+          <span class="security-chip">READ ONLY</span>
+        </div>
+
+        <div class="preset-strip">
+          <select [(ngModel)]="selectedPreset" (change)="loadPreset()">
+            <option *ngFor="let preset of presets; let i = index" [ngValue]="i">{{ preset.name }}</option>
+          </select>
+          <div>
+            <strong>{{ presets[selectedPreset].description }}</strong>
+            <span>{{ presets[selectedPreset].suggestedIndex }}</span>
+          </div>
+        </div>
+
+        <div class="editor-shell">
+          <div class="editor-top"><span>query.sql</span><i></i><i></i><i></i></div>
+          <textarea class="sql-editor" [(ngModel)]="sql" spellcheck="false" aria-label="SQL query"></textarea>
+        </div>
+
+        <div class="query-toolbar">
+          <label>Max rows<input type="number" [(ngModel)]="maxRows" min="1" max="1000"></label>
+          <label>Cache TTL<input type="number" [(ngModel)]="cacheTtlSeconds" min="1" max="3600"></label>
+          <label class="switch-label"><input type="checkbox" [(ngModel)]="explainAnalyze"><span></span>EXPLAIN ANALYZE</label>
+          <div class="toolbar-buttons">
+            <button class="run-primary" (click)="runSql(false)" [disabled]="busyAction !== null"><span>▶</span>{{ busyAction === 'query' ? 'RUNNING…' : 'RUN POSTGRES' }}</button>
+            <button class="run-cache" (click)="runSql(true)" [disabled]="busyAction !== null"><span>◆</span>{{ busyAction === 'cache-query' ? 'RUNNING…' : 'RUN CACHED' }}</button>
+            <button class="icon-button" title="Clear Redis cache" (click)="clearCache()" [disabled]="busyAction !== null">↻</button>
+          </div>
+        </div>
+      </article>
+
+      <article class="glass-panel architecture-panel" [ngClass]="'flow-' + flowMode.toLowerCase()">
+        <div class="panel-head architecture-head">
+          <div>
+            <span class="section-code">LIVE REQUEST FLOW</span>
+            <h2>System architecture</h2>
+          </div>
+          <span class="flow-status"><i></i>{{ flowLabel }}</span>
+        </div>
+
+        <div class="architecture-canvas">
+          <svg class="network-lines" viewBox="0 0 760 360" preserveAspectRatio="none" aria-hidden="true">
+            <defs>
+              <filter id="glow"><feGaussianBlur stdDeviation="3" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+            </defs>
+            <path class="wire wire-angular-spring" d="M160,180 C230,180 250,180 320,180" />
+            <path class="wire wire-spring-redis" d="M435,145 C515,95 555,82 638,82" />
+            <path class="wire wire-spring-pg" d="M435,215 C520,260 555,280 638,280" />
+            <path class="wire wire-return" d="M638,310 C510,345 300,345 160,215" />
+          </svg>
+
+          <div class="arch-node node-angular">
+            <div class="node-icon angular-icon">A</div>
+            <strong>Angular</strong><span>SQL request</span>
+          </div>
+          <div class="arch-node node-spring">
+            <div class="node-icon spring-icon">S</div>
+            <strong>Spring Boot</strong><span>API + orchestration</span>
+          </div>
+          <div class="arch-node node-redis" [class.hot]="flowMode === 'REDIS_HIT' || flowMode === 'REDIS_MISS_POSTGRES'">
+            <div class="node-icon redis-icon">R</div>
+            <strong>Redis</strong><span>{{ flowMode === 'REDIS_HIT' ? 'CACHE HIT' : flowMode === 'REDIS_MISS_POSTGRES' ? 'CACHE MISS' : 'cache layer' }}</span>
+          </div>
+          <div class="arch-node node-postgres" [class.hot]="flowMode === 'POSTGRES' || flowMode === 'REDIS_MISS_POSTGRES'">
+            <div class="node-icon pg-icon">PG</div>
+            <strong>PostgreSQL</strong><span>{{ usesIndex ? 'index path' : usesSequentialScan ? 'sequential scan' : 'query engine' }}</span>
+          </div>
+
+          <span class="packet packet-one" *ngIf="flowMode !== 'IDLE' && flowMode !== 'ERROR'"></span>
+          <span class="packet packet-two" *ngIf="flowRequestedCache && flowMode !== 'IDLE' && flowMode !== 'ERROR'"></span>
+          <span class="packet packet-three" *ngIf="flowMode === 'POSTGRES' || flowMode === 'REDIS_MISS_POSTGRES'"></span>
+        </div>
+
+        <div class="flow-caption">
+          <strong>{{ flowLabel }}</strong>
+          <p>{{ flowDescription }}</p>
+        </div>
+      </article>
+    </section>
+
+    <section class="metric-cards" *ngIf="queryResult as result">
+      <article><span class="metric-icon cyan">◷</span><div><small>Execution</small><strong>{{ (result.executionTimeMs ?? result.elapsedMs) | number:'1.2-3' }} ms</strong></div></article>
+      <article><span class="metric-icon violet">◎</span><div><small>Planning</small><strong>{{ (result.planningTimeMs ?? 0) | number:'1.2-3' }} ms</strong></div></article>
+      <article><span class="metric-icon green">▦</span><div><small>Rows returned</small><strong>{{ result.returnedRows | number }}</strong></div></article>
+      <article><span class="metric-icon orange">◆</span><div><small>Source</small><strong class="source-text">{{ result.source }}</strong></div></article>
+    </section>
+
+    <section class="results-layout" *ngIf="queryResult as result">
+      <article class="glass-panel results-panel">
+        <div class="panel-head compact-head">
+          <div><span class="section-code">QUERY RESULTS</span><h2>Returned dataset</h2></div>
+          <span class="result-badge">{{ result.returnedRows }} rows{{ result.truncated ? ' · truncated' : '' }}</span>
+        </div>
+        <div class="data-table-wrap">
+          <table>
+            <thead><tr><th *ngFor="let column of result.columns">{{ column }}</th></tr></thead>
+            <tbody><tr *ngFor="let row of result.rows"><td *ngFor="let column of result.columns">{{ formatValue(row[column]) }}</td></tr></tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="glass-panel history-panel">
+        <div class="panel-head compact-head"><div><span class="section-code">RUN HISTORY</span><h2>Recent experiments</h2></div></div>
+        <div class="empty-state" *ngIf="history.length === 0">Run the same query with different indexes and cache settings.</div>
+        <div class="history-run" *ngFor="let item of history; let i = index">
+          <span class="run-number">{{ (i + 1).toString().padStart(2, '0') }}</span>
+          <div><strong>{{ item.source }}</strong><p>{{ item.query }}</p></div>
+          <b>{{ item.elapsedMs | number:'1.2-3' }} ms</b>
+        </div>
+      </article>
+    </section>
+
+    <section id="planner" class="planner-zone">
+      <article class="glass-panel plan-panel">
+        <div class="panel-head">
+          <div><span class="section-code">02 // EXPLAIN ANALYZE</span><h2>Execution plan intelligence</h2></div>
+          <div class="plan-times" *ngIf="queryResult as result"><span>Plan {{ (result.planningTimeMs ?? 0) | number:'1.2-3' }} ms</span><span>Execute {{ (result.executionTimeMs ?? 0) | number:'1.2-3' }} ms</span></div>
+        </div>
+
+        <ng-container *ngIf="queryResult as result; else plannerEmpty">
+          <div class="plan-signal-row" *ngIf="planSignals.length > 0">
+            <div class="plan-signal" *ngFor="let signal of planSignals" [ngClass]="signal.tone">
+              <i></i><strong>{{ signal.label }}</strong><span>{{ signal.detail }}</span>
+            </div>
+          </div>
+
+          <div class="plan-visual-grid">
+            <div class="scan-lab seq-lab" [class.detected]="usesSequentialScan">
+              <div class="scan-title"><span>Sequential Scan</span><b>{{ usesSequentialScan ? 'DETECTED' : 'NOT ACTIVE' }}</b></div>
+              <div class="row-matrix"><span *ngFor="let cell of scanCells"></span><i class="scan-beam"></i></div>
+              <p>Reads table pages broadly to find matching rows.</p>
+            </div>
+            <div class="scan-lab index-lab" [class.detected]="usesIndex">
+              <div class="scan-title"><span>Index Path</span><b>{{ usesIndex ? 'DETECTED' : 'NOT ACTIVE' }}</b></div>
+              <div class="index-tree" aria-hidden="true">
+                <span class="tree-root">IDX</span>
+                <span class="tree-branch b1"></span><span class="tree-branch b2"></span><span class="tree-branch b3"></span>
+                <i class="leaf l1"></i><i class="leaf l2"></i><i class="leaf l3"></i><i class="leaf l4"></i><i class="leaf l5"></i>
+              </div>
+              <p>Uses an index structure to jump toward matching rows.</p>
+            </div>
+          </div>
+
+          <details class="raw-plan" open>
+            <summary>Raw PostgreSQL plan</summary>
+            <pre>{{ result.explainPlan.join('\n') }}</pre>
+          </details>
+        </ng-container>
+
+        <ng-template #plannerEmpty>
+          <div class="planner-empty">
+              <div class="planner-empty-orbit">
+                  <span>PLAN</span>
+              </div>
+            <div>
+              <strong>No execution plan yet</strong>
+              <p>Run a PostgreSQL query with <b>EXPLAIN ANALYZE</b> enabled, then come back here to inspect scans, joins and index usage.</p>
+              <button (click)="goTo('console')">GO TO SQL CONSOLE →</button>
+            </div>
+          </div>
+        </ng-template>
+      </article>
+    </section>
+
+    <section id="indexes" class="index-zone">
+      <article class="glass-panel index-studio">
+        <div class="panel-head">
+          <div><span class="section-code">03 // INDEX STUDIO</span><h2>Build an index and rerun the experiment</h2></div>
+          <span class="index-count">{{ indexes.length }} indexes detected</span>
+        </div>
+
+        <div class="index-workbench">
+          <div class="index-form">
+            <label>Table<select [(ngModel)]="indexTable" (change)="onIndexTableChange()"><option *ngFor="let table of tables" [value]="table.name">{{ table.name }}</option></select></label>
+            <label>Index type<select [(ngModel)]="indexMethod"><option *ngFor="let method of indexMethods" [value]="method">{{ method }}</option></select></label>
+            <label>Primary column<select [(ngModel)]="indexColumn1"><option *ngFor="let column of selectedTable?.columns" [value]="column.name">{{ column.name }}</option></select></label>
+            <label>Direction<select [(ngModel)]="indexDirection1" [disabled]="indexMethod !== 'BTREE'"><option>ASC</option><option>DESC</option></select></label>
+            <label>Second column<select [(ngModel)]="indexColumn2"><option value="">None</option><option *ngFor="let column of selectedTable?.columns" [value]="column.name">{{ column.name }}</option></select></label>
+            <label>Direction<select [(ngModel)]="indexDirection2" [disabled]="!indexColumn2 || indexMethod !== 'BTREE'"><option>ASC</option><option>DESC</option></select></label>
+            <label>INCLUDE columns<input [(ngModel)]="indexIncludes" placeholder="total,status"></label>
+            <label>Custom name<input [(ngModel)]="indexName" placeholder="auto-generated"></label>
+            <label class="switch-label wide"><input type="checkbox" [(ngModel)]="indexConcurrent"><span></span>Create concurrently</label>
+            <button class="create-index-button" (click)="createIndex()" [disabled]="busyAction !== null || !indexColumn1"><span>＋</span>{{ busyAction === 'create-index' ? 'BUILDING INDEX…' : 'CREATE INDEX' }}</button>
+          </div>
+
+          <div class="index-preview">
+            <div class="preview-top"><span>LIVE PREVIEW</span><b>{{ indexMethod }}</b></div>
+            <code>CREATE INDEX {{ indexName || 'idx_' + indexTable + '_' + indexColumn1 }}<br>ON {{ indexTable }} USING {{ indexMethod }}<br>({{ indexColumn1 }}{{ indexMethod === 'BTREE' ? ' ' + indexDirection1 : '' }}<ng-container *ngIf="indexColumn2">, {{ indexColumn2 }}{{ indexMethod === 'BTREE' ? ' ' + indexDirection2 : '' }}</ng-container>);</code>
+            <div class="index-orbit" [ngClass]="indexMethod.toLowerCase()">
+              <span>{{ indexMethod }}</span><i></i><i></i><i></i><i></i><i></i><i></i>
+            </div>
+            <p>Build it, rerun the exact same SQL, then compare the EXPLAIN plan and latency.</p>
+          </div>
+        </div>
+
+        <div class="existing-indexes">
+          <div class="existing-index" *ngFor="let index of indexes">
+            <span class="index-state" [class.managed]="index.managed"></span>
+            <div><strong>{{ index.name }}</strong><code>{{ index.definition }}</code></div>
+            <span>{{ formatBytes(index.sizeBytes) }}</span><span>{{ index.scans }} scans</span>
+            <button *ngIf="index.managed" (click)="dropIndex(index)" [disabled]="busyAction !== null">DROP</button>
+            <small *ngIf="!index.managed">SYSTEM</small>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <section id="metrics" class="telemetry-zone" *ngIf="metrics as m">
+      <article class="glass-panel telemetry-panel">
+        <div class="panel-head"><div><span class="section-code">04 // TELEMETRY</span><h2>PostgreSQL live metrics</h2></div><span class="live-pill"><i></i> LIVE SNAPSHOT</span></div>
+        <div class="telemetry-grid">
+          <div class="telemetry-card"><small>Buffer cache hit</small><strong>{{ m.cacheHitRatio | number:'1.1-2' }}%</strong><div class="mini-bars"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+          <div class="telemetry-card"><small>Active connections</small><strong>{{ m.activeConnections }}</strong><div class="radar"><i></i><i></i><b></b></div></div>
+          <div class="telemetry-card"><small>Blocks hit</small><strong>{{ m.blocksHit | number }}</strong><p>served from shared buffers</p></div>
+          <div class="telemetry-card"><small>Blocks read</small><strong>{{ m.blocksRead | number }}</strong><p>read from storage</p></div>
+        </div>
+        <div class="table-telemetry">
+          <div class="table-stat" *ngFor="let table of m.tables">
+            <strong>{{ table.table }}</strong><span>{{ table.liveRows | number }} live rows</span>
+            <div class="scan-meter"><i [style.width.%]="table.indexScans + table.sequentialScans === 0 ? 0 : (table.indexScans * 100 / (table.indexScans + table.sequentialScans))"></i></div>
+            <small>seq {{ table.sequentialScans | number }} · idx {{ table.indexScans | number }}</small>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <section id="dataset" class="dataset-zone">
+      <article class="glass-panel dataset-panel">
+        <div class="panel-head"><div><span class="section-code">05 // DATASET</span><h2>Build the relational lab</h2></div><span class="dataset-total">{{ totalRows | number }} total rows</span></div>
+        <div class="seed-console">
+          <label>Users<input type="number" [(ngModel)]="seedUsers" min="1000" max="100000" step="5000"></label>
+          <label>Products<input type="number" [(ngModel)]="seedProducts" min="1000" max="500000" step="10000"></label>
+          <label>Orders<input type="number" [(ngModel)]="seedOrders" min="1000" max="2000000" step="50000"></label>
+          <button (click)="seed()" [disabled]="busyAction !== null">{{ busyAction === 'seed' ? 'SEEDING…' : 'SEED DATABASE' }}</button>
+        </div>
+        <div class="schema-map">
+          <div class="schema-table" *ngFor="let table of tables">
+            <div><strong>{{ table.name }}</strong><span>~{{ table.estimatedRows | number }}</span></div>
+            <code *ngFor="let column of table.columns | slice:0:6">{{ column.name }} <em>{{ column.dataType }}</em></code>
+          </div>
+        </div>
+      </article>
+    </section>
+  </main>
+</div>
