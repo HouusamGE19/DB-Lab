@@ -163,8 +163,27 @@ The query can then be rerun to inspect whether PostgreSQL selects the GIN-backed
 After the experiments, the Metrics view exposes PostgreSQL statistics such as buffer cache hit ratio, blocks served from shared buffers, blocks read from storage, connections and sequential/index scan activity.
 
 ![DB-Lab PostgreSQL telemetry](docs/screenshots/11-telemetry.png)
+## Measured results
 
-## Schema
+The values below were captured from the local demo environment shown above. Results are environment-specific and can vary with hardware, cache state, dataset size and PostgreSQL planner decisions.
+
+| Experiment | Before | After | Observed result |
+| --- | ---: | ---: | --- |
+| Composite B-tree — latest orders for one user | `8.141 ms` | `0.066 ms` | ~`99.2%` lower PostgreSQL execution time |
+| JSONB containment — GIN index | `0.591 ms` | `0.335 ms` | ~`43.3%` lower PostgreSQL execution time |
+| Redis cached query | `7.509 ms` miss | `2.837 ms` median hit | ~`62.2%` lower request latency |
+
+### Composite B-tree result
+
+The same SQL was executed before and after creating:
+
+```sql
+CREATE INDEX ...
+    ON orders USING BTREE
+    (user_id ASC, created_at DESC);
+```
+
+### Schema
 
 ```text
 users
