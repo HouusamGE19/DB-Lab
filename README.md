@@ -2,7 +2,7 @@
 
 A portfolio project for experimenting with PostgreSQL query plans, joins, index strategies and Redis caching from a Spring Boot + Angular application.
 
-![V3 animated dashboard concept](docs/v3-concept.png)
+![DB-Lab landing screen](docs/screenshots/01-landing.png)
 
 ## Stack
 
@@ -47,6 +47,122 @@ The underlying lab still includes:
 - live index catalog, index size and scan count
 - PostgreSQL cache-hit ratio and table scan metrics
 - realistic relational schema with joins
+
+## Demo walkthrough
+
+DB-Lab is designed around repeatable database experiments: keep the SQL and dataset stable, change the physical access strategy, then compare the PostgreSQL execution plan and measured behavior.
+
+### 1. Build a reproducible dataset
+
+The lab generates a relational PostgreSQL dataset with users, products, orders, inventory, order items, categories and reviews.
+
+The default benchmark creates roughly 895,000 rows across the schema.
+
+![DB-Lab dataset](docs/screenshots/03-dataset.png)
+
+### 2. Inspect the baseline execution plan
+
+Start with the **Latest orders for one user** workload and run it with `EXPLAIN ANALYZE`.
+
+Before adding the custom composite index, PostgreSQL can scan the `orders` relation broadly while still using existing indexes elsewhere in the join.
+
+![DB-Lab baseline query plan](docs/screenshots/04-btree-baseline-plan.png)
+
+The important point is not simply the execution time. The execution plan shows which access strategies PostgreSQL selected for each part of the query.
+
+### 3. Create a composite B-tree index
+
+Index Studio can build indexes without leaving the experiment interface.
+
+For this workload:
+
+```sql
+CREATE INDEX ...
+ON orders USING BTREE
+(user_id ASC, created_at DESC);
+```
+
+![DB-Lab B-tree Index Studio](docs/screenshots/05-btree-index-studio.png)
+
+The exact same SQL can then be executed again and compared with the baseline.
+
+### 4. Rerun the same workload
+
+After adding the composite index, PostgreSQL can use the new index path for the order lookup.
+
+![DB-Lab optimized B-tree query](docs/screenshots/06-btree-optimized-query.png)
+
+The central workflow is:
+
+```text
+same SQL
+    ↓
+baseline execution plan
+    ↓
+change indexing strategy
+    ↓
+rerun EXPLAIN ANALYZE
+    ↓
+compare plan + latency
+```
+
+Measured timings depend on hardware, PostgreSQL cache state and the generated dataset, so DB-Lab exposes the real values instead of presenting fixed benchmark claims.
+
+### 5. Compare PostgreSQL execution with Redis caching
+
+The same query can also be executed through the Redis caching path.
+
+On a cache miss:
+
+```text
+Angular
+   ↓
+Spring Boot
+   ↓
+Redis MISS
+   ↓
+PostgreSQL
+   ↓
+Redis
+```
+
+On a cache hit, the stored result is returned without executing PostgreSQL again.
+
+![DB-Lab Redis cache hit](docs/screenshots/07-redis-cache-hit.png)
+
+The interface reports the source explicitly as `REDIS_MISS_POSTGRES`, `REDIS_HIT` or `POSTGRES`.
+
+### 6. Experiment with GIN and JSONB
+
+The playground is not limited to B-tree indexes. PostgreSQL-specific workloads include array and JSONB containment queries.
+
+For example:
+
+```sql
+SELECT id, name, price, attributes
+FROM products
+WHERE attributes @> '{"brand":"Brand 7"}'::jsonb
+LIMIT 100;
+```
+
+A GIN index can be created directly from Index Studio:
+
+```sql
+CREATE INDEX ...
+ON products USING GIN (attributes);
+```
+
+![DB-Lab GIN Index Studio](docs/screenshots/09-gin-index-studio.png)
+
+The query can then be rerun to inspect whether PostgreSQL selects the GIN-backed access path.
+
+![DB-Lab JSONB query with GIN](docs/screenshots/10-jsonb-after-gin.png)
+
+### 7. Observe PostgreSQL telemetry
+
+After the experiments, the Metrics view exposes PostgreSQL statistics such as buffer cache hit ratio, blocks served from shared buffers, blocks read from storage, connections and sequential/index scan activity.
+
+![DB-Lab PostgreSQL telemetry](docs/screenshots/11-telemetry.png)
 
 ## Schema
 
